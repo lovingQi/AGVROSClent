@@ -1,0 +1,19 @@
+.site-layout-content {
+  min-height: calc(100vh - 134px);
+  padding: 24px;
+  background: #fff;
+  margin-top: 16px;
+}
+
+.logo {
+  width: 32px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.2);
+  margin-right: 16px;
+  border-radius: 4px;
+}
+
+.ant-row-rtl .logo {
+  margin-right: 0;
+  margin-left: 16px;
+} 
