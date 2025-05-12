@@ -1,32 +1,60 @@
-import express from 'express';
+import { Router, Request, Response } from 'express';
 import { SSHService } from '../services/sshService';
+import { logger } from '../utils/logger';
 
-const router = express.Router();
+const router = Router();
 const sshService = new SSHService();
 
-router.post('/connect', async (req, res) => {
-  const { hostname } = req.body;
-  if (!hostname) {
-    return res.status(400).json({ success: false, message: '请提供主机地址' });
-  }
+interface ConnectRequest extends Request {
+  body: {
+    hostname: string;
+  };
+}
 
-  const success = await sshService.connect(hostname);
-  res.json({ success, message: success ? '连接成功' : '连接失败' });
+router.post('/connect', async (req: ConnectRequest, res: Response) => {
+  try {
+    const { hostname } = req.body;
+    logger.info(`收到连接请求，主机地址: ${hostname}`);
+    
+    if (!hostname) {
+      logger.warn('未提供主机地址');
+      return res.status(400).json({ success: false, message: '请提供主机地址' });
+    }
+    
+    const success = await sshService.connect(hostname);
+    logger.info(`连接${success ? '成功' : '失败'}: ${hostname}`);
+    res.json({ success, message: success ? '连接成功' : '连接失败' });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(`连接异常: ${errorMessage}`);
+    res.status(500).json({ success: false, message: '连接失败' });
+  }
 });
 
-router.get('/params', async (req, res) => {
+router.get('/params', async (_req: Request, res: Response) => {
   try {
+    logger.info('正在获取参数');
     const params = await sshService.readParamsFile();
+    logger.info('成功获取参数');
     res.json({ success: true, data: params });
   } catch (error) {
-    console.error('获取参数失败:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(`获取参数失败: ${errorMessage}`);
     res.status(500).json({ success: false, message: '获取参数失败' });
   }
 });
 
-router.post('/disconnect', (req, res) => {
-  sshService.disconnect();
-  res.json({ success: true, message: '断开连接成功' });
+router.post('/disconnect', (_req: Request, res: Response) => {
+  try {
+    logger.info('正在断开连接');
+    sshService.disconnect();
+    logger.info('成功断开连接');
+    res.json({ success: true, message: '断开连接成功' });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(`断开连接失败: ${errorMessage}`);
+    res.status(500).json({ success: false, message: '断开连接失败' });
+  }
 });
 
 export default router; 

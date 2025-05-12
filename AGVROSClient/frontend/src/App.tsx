@@ -1,8 +1,9 @@
 import React from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Link } from 'react-router-dom';
 import { Layout } from 'antd';
 import HomePage from './pages/HomePage';
 import AGVDetailPage from './pages/AGVDetailPage';
+import ParamsViewer from './components/ParamsViewer';
 import './App.css';
 
 const { Header, Content, Footer } = Layout;
@@ -10,15 +11,19 @@ const { Header, Content, Footer } = Layout;
 const App: React.FC = () => {
   return (
     <Layout className="layout">
-      <Header style={{ display: 'flex', alignItems: 'center' }}>
+      <Header style={{ display: 'flex', alignItems: 'center', padding: '0 20px' }}>
         <div className="logo" />
-        <h1 style={{ color: 'white', margin: 0 }}>AGV ROS监控系统</h1>
+        <nav style={{ display: 'flex', gap: '20px' }}>
+          <Link to="/" style={{ color: 'white' }}>首页</Link>
+          <Link to="/params" style={{ color: 'white' }}>参数配置</Link>
+        </nav>
       </Header>
       <Content style={{ padding: '0 50px' }}>
         <div className="site-layout-content">
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/agv/:id" element={<AGVDetailPage />} />
+            <Route path="/params" element={<ParamsViewer />} />
           </Routes>
         </div>
       </Content>

@@ -2,6 +2,7 @@ import express from 'express';
 import http from 'http';
 import cors from 'cors';
 import agvRoutes from './routes/agvRoutes';
+import paramsRouter from './routes/paramsRouter';
 import socketService from './services/SocketService';
 import logger from './config/logger';
 import config from './config/config';
@@ -27,6 +28,7 @@ app.use((req: express.Request, res: express.Response, next: express.NextFunction
 
 // 路由
 app.use('/api', agvRoutes);
+app.use('/api/params', paramsRouter);
 
 // 健康检查端点
 app.get('/health', (req: express.Request, res: express.Response) => {
