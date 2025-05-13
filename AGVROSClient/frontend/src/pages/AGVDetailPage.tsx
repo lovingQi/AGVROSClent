@@ -4,6 +4,7 @@ import { Layout, Card, Badge, Spin, Empty, Tabs, Button, Table, Typography, Spac
 import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons';
 import RosConnection from '../utils/RosConnection';
 import RosDataVisualizer from '../components/RosDataVisualizer';
+import MapViewer from '../components/MapViewer';
 
 const { Content } = Layout;
 const { Title, Text } = Typography;
@@ -639,6 +640,10 @@ const AGVDetailPage: React.FC = () => {
                   <Empty description="未找到可用话题" />
                 )}
               </Space>
+            </TabPane>
+            
+            <TabPane tab="地图" key="map">
+              <MapViewer hostname={agvDetail?.ipAddress} />
             </TabPane>
             
             <TabPane tab="数据可视化" key="visualization">

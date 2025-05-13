@@ -44,6 +44,35 @@ router.get('/params', async (_req: Request, res: Response) => {
   }
 });
 
+router.get('/map', async (req: Request, res: Response) => {
+  try {
+    const { hostname } = req.query;
+    
+    if (!hostname || typeof hostname !== 'string') {
+      logger.warn('未提供主机地址');
+      return res.status(400).json({ success: false, message: '请提供主机地址参数' });
+    }
+    
+    logger.info(`正在连接到主机 ${hostname} 获取地图数据`);
+    
+    // 先建立SSH连接
+    const connected = await sshService.connect(hostname);
+    if (!connected) {
+      logger.error(`连接到主机 ${hostname} 失败`);
+      return res.status(500).json({ success: false, message: '连接主机失败，无法获取地图数据' });
+    }
+    
+    logger.info('正在获取地图数据');
+    const mapData = await sshService.readMapFile();
+    logger.info('成功获取地图数据');
+    res.json({ success: true, data: mapData });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(`获取地图数据失败: ${errorMessage}`);
+    res.status(500).json({ success: false, message: '获取地图数据失败' });
+  }
+});
+
 router.post('/disconnect', (_req: Request, res: Response) => {
   try {
     logger.info('正在断开连接');

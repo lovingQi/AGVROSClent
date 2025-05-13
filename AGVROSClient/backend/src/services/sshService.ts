@@ -161,6 +161,197 @@ export class SSHService {
     });
   }
 
+  async readMapFile(): Promise<any> {
+    if (!this.client) {
+      const error = '尝试读取地图文件时SSH未连接';
+      logger.error(error);
+      throw new Error(error);
+    }
+
+    return new Promise((resolve, reject) => {
+      logger.info('正在创建SFTP会话用于读取地图文件');
+      this.client!.sftp((err, sftp) => {
+        if (err) {
+          logger.error(`SFTP会话创建失败: ${err.message}`);
+          reject(err);
+          return;
+        }
+
+        const filePath = '/usr/local/urobot/params/map/test.json';
+        logger.info(`正在读取地图文件: ${filePath}`);
+        const readStream = sftp.createReadStream(filePath);
+        let data = '';
+
+        readStream.on('data', (chunk: Buffer) => {
+          data += chunk.toString();
+          logger.debug(`读取地图数据块: ${chunk.length} 字节`);
+        });
+
+        readStream.on('end', () => {
+          try {
+            logger.info(`地图文件读取完成，数据长度: ${data.length} 字节`);
+            const rawMapData = JSON.parse(data);
+            logger.info('成功解析地图JSON数据');
+            logger.info(`原始地图数据结构: ${JSON.stringify(Object.keys(rawMapData))}`);
+            
+            // 处理和验证地图数据
+            const processedMapData: any = {
+              points: [],
+              lines: [],
+              objects: []
+            };
+            
+            // 检查并处理特定格式的地图数据（根据日志发现的格式）
+            if (rawMapData.ObsPoints && Array.isArray(rawMapData.ObsPoints)) {
+              // 处理障碍点数据
+              processedMapData.points = rawMapData.ObsPoints.map((point: any) => {
+                if (Array.isArray(point) && point.length >= 2) {
+                  return {
+                    x: typeof point[0] === 'number' ? point[0] : parseFloat(point[0]),
+                    y: typeof point[1] === 'number' ? point[1] : parseFloat(point[1])
+                  };
+                } else if (typeof point === 'object' && point !== null) {
+                  return {
+                    x: typeof point.x === 'number' ? point.x : parseFloat(point.x || '0'),
+                    y: typeof point.y === 'number' ? point.y : parseFloat(point.y || '0')
+                  };
+                }
+                return null;
+              }).filter(Boolean);
+            }
+            
+            // 处理路径线数据
+            if (rawMapData.Objs && Array.isArray(rawMapData.Objs)) {
+              // 提取对象
+              const objectData = rawMapData.Objs;
+              
+              // 处理线段（可能在对象中定义）
+              objectData.forEach((obj: any) => {
+                // 检查是否是线段对象
+                if (obj.type === 'line' || obj.type === 'Line' || obj.type === 'PATH_LINE') {
+                  if (obj.start && obj.end) {
+                    processedMapData.lines.push({
+                      start: {
+                        x: typeof obj.start.x === 'number' ? obj.start.x : parseFloat(obj.start.x || '0'),
+                        y: typeof obj.start.y === 'number' ? obj.start.y : parseFloat(obj.start.y || '0')
+                      },
+                      end: {
+                        x: typeof obj.end.x === 'number' ? obj.end.x : parseFloat(obj.end.x || '0'),
+                        y: typeof obj.end.y === 'number' ? obj.end.y : parseFloat(obj.end.y || '0')
+                      }
+                    });
+                  }
+                } else {
+                  // 其他类型的对象
+                  const processedObj: any = { ...obj };
+                  
+                  // 如果对象有位置信息
+                  if (obj.position || obj.pose || obj.Point || obj.point) {
+                    const posInfo = obj.position || obj.pose || obj.Point || obj.point;
+                    
+                    if (Array.isArray(posInfo) && posInfo.length >= 2) {
+                      processedObj.position = {
+                        x: typeof posInfo[0] === 'number' ? posInfo[0] : parseFloat(posInfo[0]),
+                        y: typeof posInfo[1] === 'number' ? posInfo[1] : parseFloat(posInfo[1])
+                      };
+                    } else if (typeof posInfo === 'object' && posInfo !== null) {
+                      processedObj.position = {
+                        x: typeof posInfo.x === 'number' ? posInfo.x : parseFloat(posInfo.x || '0'),
+                        y: typeof posInfo.y === 'number' ? posInfo.y : parseFloat(posInfo.y || '0')
+                      };
+                    }
+                    
+                    processedMapData.objects.push(processedObj);
+                  }
+                }
+              });
+            }
+            
+            // 处理元数据
+            if (rawMapData.MapRes) {
+              processedMapData.resolution = typeof rawMapData.MapRes === 'number' ? 
+                rawMapData.MapRes : parseFloat(rawMapData.MapRes);
+            }
+            
+            if (rawMapData.MaxPose && rawMapData.MinPose) {
+              // 计算地图尺寸
+              const maxPose = rawMapData.MaxPose;
+              const minPose = rawMapData.MinPose;
+              
+              if (Array.isArray(maxPose) && maxPose.length >= 2 && 
+                  Array.isArray(minPose) && minPose.length >= 2) {
+                processedMapData.width = maxPose[0] - minPose[0];
+                processedMapData.height = maxPose[1] - minPose[1];
+              } else if (typeof maxPose === 'object' && maxPose !== null && 
+                         typeof minPose === 'object' && minPose !== null) {
+                const maxX = typeof maxPose.x === 'number' ? maxPose.x : parseFloat(maxPose.x || '0');
+                const maxY = typeof maxPose.y === 'number' ? maxPose.y : parseFloat(maxPose.y || '0');
+                const minX = typeof minPose.x === 'number' ? minPose.x : parseFloat(minPose.x || '0');
+                const minY = typeof minPose.y === 'number' ? minPose.y : parseFloat(minPose.y || '0');
+                
+                processedMapData.width = maxX - minX;
+                processedMapData.height = maxY - minY;
+              }
+            }
+            
+            if (rawMapData.Header && rawMapData.Header.Name) {
+              processedMapData.name = rawMapData.Header.Name;
+            }
+            
+            // 如果我们仍然没有提取到点数据，尝试查找其他可能的点数据源
+            if (processedMapData.points.length === 0) {
+              // 尝试从NumPoints和Points字段中提取
+              if (rawMapData.Points && Array.isArray(rawMapData.Points)) {
+                processedMapData.points = rawMapData.Points.map((point: any) => {
+                  if (Array.isArray(point) && point.length >= 2) {
+                    return {
+                      x: typeof point[0] === 'number' ? point[0] : parseFloat(point[0]),
+                      y: typeof point[1] === 'number' ? point[1] : parseFloat(point[1])
+                    };
+                  } else if (typeof point === 'object' && point !== null) {
+                    return {
+                      x: typeof point.x === 'number' ? point.x : parseFloat(point.x || '0'),
+                      y: typeof point.y === 'number' ? point.y : parseFloat(point.y || '0')
+                    };
+                  }
+                  return null;
+                }).filter(Boolean);
+              }
+            }
+            
+            logger.info(`处理后的地图数据: 点=${processedMapData.points.length}, 线=${processedMapData.lines.length}, 对象=${processedMapData.objects.length}`);
+            
+            // 如果依然没有提取到有效数据，则添加一些调试日志并返回原始数据
+            if (processedMapData.points.length === 0 && processedMapData.lines.length === 0) {
+              logger.warn('无法提取有效的地图数据，返回原始数据进行调试');
+              // 转储部分原始数据作为调试信息
+              if (rawMapData.ObsPoints) {
+                logger.debug(`ObsPoints样本: ${JSON.stringify(rawMapData.ObsPoints.slice(0, 5))}`);
+              }
+              if (rawMapData.Objs) {
+                logger.debug(`Objs样本: ${JSON.stringify(rawMapData.Objs.slice(0, 2))}`);
+              }
+              
+              // 返回原始数据以供前端直接处理
+              resolve(rawMapData);
+            } else {
+              resolve(processedMapData);
+            }
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            logger.error(`地图JSON解析错误: ${errorMessage}`);
+            reject(error);
+          }
+        });
+
+        readStream.on('error', (error: Error) => {
+          logger.error(`地图文件读取错误: ${error.message}`);
+          reject(error);
+        });
+      });
+    });
+  }
+
   disconnect(): void {
     if (this.client) {
       logger.info('正在断开SSH连接');
