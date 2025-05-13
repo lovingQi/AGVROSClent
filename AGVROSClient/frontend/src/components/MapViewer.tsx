@@ -293,10 +293,10 @@ const MapViewer: React.FC<MapViewerProps> = ({ hostname }: MapViewerProps) => {
 
     // 绘制点
     if (mapData.points && mapData.points.length > 0) {
-      ctx.fillStyle = '#2196F3'; // 蓝色点
+      ctx.fillStyle = '#000000'; // 黑色点
       mapData.points.forEach(point => {
         ctx.beginPath();
-        ctx.arc(transformX(point.x), transformY(point.y), 2, 0, Math.PI * 2);
+        ctx.arc(transformX(point.x), transformY(point.y), 0.7, 0, Math.PI * 2);
         ctx.fill();
       });
     }
