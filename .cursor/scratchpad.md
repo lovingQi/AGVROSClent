@@ -14,17 +14,20 @@
 ### 后端
 - Node.js作为Web服务器
 - Express框架用于API开发
+- TypeScript提供类型安全和更好的开发体验
+- Socket.IO：实现服务器与客户端的实时通信
 - rosbridge_suite：将ROS消息转换为WebSocket消息，实现ROS与Web应用的通信
-- WebSocket：实现服务器与客户端的实时通信
 
 ### 前端
 - React：构建用户界面
-- Three.js (可选)：如果需要3D可视化小车运动状态
+- TypeScript：提供类型检查和开发支持
 - Ant Design：UI组件库
-- react-ros：React与ROS的集成库
-- roslib.js：浏览器中与ROS通信的JavaScript库
+- Socket.IO-client：与后端实现实时通信
+- 自定义RosConnection模块：处理与ROS的通信
 
-### 系统架构图
+## 详细系统架构
+
+### 整体架构
 ```
 +------------------+      +-------------------+      +------------------+
 |                  |      |                   |      |                  |
@@ -33,20 +36,78 @@
 |                  |      |                   |      |                  |
 +--------+---------+      +--------+----------+      +--------+---------+
          |                         |                           |
+         |  WebSocket              |  WebSocket                |  WebSocket
          |                         |                           |
-         v                         v                           v
 +------------------------------------------------------------------+
 |                                                                  |
-|                     Node.js WebSocket Server                      |
+|                       后端服务器 (Node.js)                        |
+|                                                                  |
+|  +-----------------+    +-------------------+    +-------------+ |
+|  | Express API服务  |    | Socket.IO服务     |    | ROS代理服务  | |
+|  +-----------------+    +-------------------+    +-------------+ |
 |                                                                  |
 +---------------------------+------------------------------------+--+
                             |
-                            v
+                            | HTTP/WebSocket
+                            |
 +---------------------------+------------------------------------+
 |                                                                |
-|                       React Web Application                    |
+|                       React Web应用                            |
 |                                                                |
-+----------------------------------------------------------------+
+|  +----------------+    +----------------+    +----------------+ |
+|  | 首页/AGV列表    |    | AGV详情页面    |    | 参数配置页面    | |
+|  +----------------+    +----------------+    +----------------+ |
+|                                                                 |
++-----------------------------------------------------------------+
+```
+
+### 后端架构详解
+
+#### 1. 核心服务
+- **RosProxyService**: 代理与AGV上rosbridge的WebSocket通信，提供与ROS系统的接口
+- **RosService**: 处理与单个AGV ROS系统的交互，包括连接管理、话题订阅等
+- **AgvManager**: 管理多个AGV的连接和状态，提供统一的接口
+- **SocketService**: 管理与前端的Socket.IO连接，处理实时消息推送
+
+#### 2. 数据流
+```
+AGV(ROS) → rosbridge_server → WebSocket → RosProxyService → SocketService → 前端
+```
+
+#### 3. 主要API路由
+- `/api/agvs`: 获取所有AGV状态
+- `/api/agv/:id`: 获取指定AGV详情
+
+### 前端架构详解
+
+#### 1. 组件结构
+- **App**: 应用根组件，处理路由
+- **HomePage**: 首页，显示AGV列表
+- **AGVDetailPage**: AGV详情页面，显示单个AGV信息和ROS话题
+- **RosDataVisualizer**: ROS数据可视化组件
+- **ParamsViewer**: 参数配置页面
+
+#### 2. 通信模块
+- **RosConnection**: 处理与后端的Socket.IO连接和ROS通信
+- **API Services**: 封装对后端API的请求
+
+#### 3. 数据流
+```
+用户界面 → 组件状态 → RosConnection → Socket.IO → 后端 → ROS
+```
+
+### ROS通信流程
+
+#### 1. 连接建立流程
+```
+前端 → 连接Socket.IO → 发送ros:connect → 后端创建到rosbridge的连接 → 返回连接状态
+```
+
+#### 2. 话题订阅流程
+```
+1. 获取话题列表: 前端 → 调用ROS服务(/rosapi/topics) → 获取可用话题
+2. 订阅话题: 前端 → 发送subscribe操作 → 后端转发到rosbridge → rosbridge订阅ROS话题
+3. 消息接收: ROS → rosbridge → 后端 → Socket.IO → 前端RosConnection → 组件状态更新 → 界面显示
 ```
 
 ## 高层任务拆分
