@@ -46,6 +46,10 @@ class AgvManager extends EventEmitter implements AgvManagerEvents {
     
     // 监听状态更新
     rosService.on('status_update', (status: AgvStatus) => {
+      console.log(`收到AGV ${id}的状态更新:`, JSON.stringify(status));
+      if (status.position) {
+        console.log(`AGV ${id}的位置更新: x=${status.position.x}, y=${status.position.y}, theta=${status.position.theta}`);
+      }
       this.agvStatuses.set(id, status);
       this.emit('status_update', status);
     });

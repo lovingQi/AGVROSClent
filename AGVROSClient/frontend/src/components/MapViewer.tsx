@@ -33,6 +33,13 @@ interface MapData {
   name?: string;         // 地图名称
 }
 
+// 机器人位置接口
+interface RobotPosition {
+  x: number;
+  y: number;
+  theta: number;
+}
+
 interface MapViewerProps {
   hostname?: string;
 }
@@ -40,6 +47,8 @@ interface MapViewerProps {
 const MapViewer: React.FC<MapViewerProps> = ({ hostname }: MapViewerProps) => {
   const [loading, setLoading] = useState<boolean>(false);
   const [mapData, setMapData] = useState<MapData | null>(null);
+  const [robotPosition, setRobotPosition] = useState<RobotPosition | null>(null);
+  const [connecting, setConnecting] = useState<boolean>(false);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
 
   // 获取地图数据
@@ -221,9 +230,43 @@ const MapViewer: React.FC<MapViewerProps> = ({ hostname }: MapViewerProps) => {
     }
   };
 
+  // 连接到ROS
+  const connectToROS = async () => {
+    if (!hostname) {
+      message.error('缺少主机地址，无法连接到ROS');
+      return false;
+    }
+    
+    setConnecting(true);
+    try {
+      console.log('尝试自动连接到机器人ROS...');
+      const response = await axios.post(`/api/agvs/1/connect`);
+      if (response.data.success) {
+        console.log('成功连接到机器人ROS');
+        setConnecting(false);
+        return true;
+      } else {
+        console.error('连接ROS失败:', response.data.error);
+        message.error('自动连接ROS失败');
+        setConnecting(false);
+        return false;
+      }
+    } catch (error) {
+      console.error('连接机器人ROS失败:', error);
+      message.error('自动连接ROS失败');
+      setConnecting(false);
+      return false;
+    }
+  };
+
   // 渲染地图
   const renderMap = () => {
-    if (!canvasRef.current || !mapData) return;
+    if (!canvasRef.current || !mapData) {
+      console.log('无法渲染地图: canvasRef或mapData不可用');
+      return;
+    }
+
+    console.log('开始渲染地图，robotPosition:', robotPosition);
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
@@ -265,6 +308,14 @@ const MapViewer: React.FC<MapViewerProps> = ({ hostname }: MapViewerProps) => {
           maxY = Math.max(maxY, obj.position.y);
         }
       });
+    }
+
+    // 如果有机器人位置，也考虑到边界计算中
+    if (robotPosition) {
+      minX = Math.min(minX, robotPosition.x);
+      minY = Math.min(minY, robotPosition.y);
+      maxX = Math.max(maxX, robotPosition.x);
+      maxY = Math.max(maxY, robotPosition.y);
     }
 
     // 如果没有有效数据，则返回
@@ -352,6 +403,43 @@ const MapViewer: React.FC<MapViewerProps> = ({ hostname }: MapViewerProps) => {
       });
     }
 
+    // 绘制机器人位置
+    if (robotPosition) {
+      const robotSize = 10; // 机器人图标大小
+      
+      // 绘制机器人主体（蓝色圆形）
+      ctx.fillStyle = '#2196F3'; // 蓝色
+      ctx.beginPath();
+      ctx.arc(transformX(robotPosition.x), transformY(robotPosition.y), robotSize, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // 绘制机器人朝向（箭头）
+      const headingLength = robotSize * 1.5;
+      const headingX = robotPosition.x + Math.cos(robotPosition.theta * Math.PI / 180) * headingLength;
+      const headingY = robotPosition.y + Math.sin(robotPosition.theta * Math.PI / 180) * headingLength;
+      
+      ctx.strokeStyle = '#FFFFFF'; // 白色
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(transformX(robotPosition.x), transformY(robotPosition.y));
+      ctx.lineTo(transformX(headingX), transformY(headingY));
+      ctx.stroke();
+      
+      // 添加机器人位置信息
+      ctx.fillStyle = '#000000';
+      ctx.font = '12px Arial';
+      ctx.fillText(
+        `位置: (${robotPosition.x.toFixed(2)}, ${robotPosition.y.toFixed(2)})`, 
+        transformX(robotPosition.x) + robotSize + 5, 
+        transformY(robotPosition.y) - 5
+      );
+      ctx.fillText(
+        `朝向: ${robotPosition.theta.toFixed(2)}°`, 
+        transformX(robotPosition.x) + robotSize + 5, 
+        transformY(robotPosition.y) + 10
+      );
+    }
+
     // 添加比例尺
     const scaleBarLength = 100; // 像素
     const realDistance = scaleBarLength / scale; // 实际距离
@@ -368,10 +456,49 @@ const MapViewer: React.FC<MapViewerProps> = ({ hostname }: MapViewerProps) => {
     ctx.fillText(`${realDistance.toFixed(2)} 单位`, 20, canvas.height - 8);
   };
 
-  // 当地图数据更新时重新渲染
+  // 获取机器人位置
+  const fetchRobotPosition = async () => {
+    if (!hostname) return;
+    
+    try {
+      console.log('开始获取机器人位置，请求API: /api/agvs/1');
+      const response = await axios.get(`/api/agvs/1`); // 假设使用AGV ID为1
+      console.log('获取到AGV数据:', response.data);
+      
+      if (response.data && response.data.position) {
+        console.log('获取到位置信息:', response.data.position);
+        setRobotPosition(response.data.position);
+      } else {
+        console.log('响应中不包含position数据');
+      }
+    } catch (error) {
+      console.error('获取机器人位置失败:', error);
+    }
+  };
+
+  // 定期获取机器人位置
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout;
+    
+    if (hostname && mapData) {
+      // 立即获取一次位置
+      fetchRobotPosition();
+      
+      // 然后每秒更新一次
+      intervalId = setInterval(fetchRobotPosition, 1000);
+    }
+    
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [hostname, mapData]);
+
+  // 当地图数据或机器人位置更新时重新渲染
   useEffect(() => {
     renderMap();
-  }, [mapData]);
+  }, [mapData, robotPosition]);
 
   // 调整地图大小
   useEffect(() => {
@@ -395,6 +522,21 @@ const MapViewer: React.FC<MapViewerProps> = ({ hostname }: MapViewerProps) => {
     };
   }, []);
 
+  // 组件挂载时自动连接ROS并加载地图
+  useEffect(() => {
+    const autoConnectAndLoad = async () => {
+      if (hostname) {
+        const connected = await connectToROS();
+        if (connected) {
+          // 连接成功后自动加载地图
+          fetchMapData();
+        }
+      }
+    };
+    
+    autoConnectAndLoad();
+  }, [hostname]); // 只在hostname改变时执行
+
   return (
     <Card 
       title="机器人地图" 
@@ -402,10 +544,10 @@ const MapViewer: React.FC<MapViewerProps> = ({ hostname }: MapViewerProps) => {
         <Button
           type="primary"
           onClick={fetchMapData}
-          loading={loading}
+          loading={loading || connecting}
           disabled={!hostname}
         >
-          加载地图
+          {connecting ? '正在连接...' : '刷新地图'}
         </Button>
       }
     >
@@ -433,7 +575,7 @@ const MapViewer: React.FC<MapViewerProps> = ({ hostname }: MapViewerProps) => {
             }}
           >
             {hostname 
-              ? '点击"加载地图"按钮来获取地图数据' 
+              ? '点击"刷新地图"按钮来获取地图数据' 
               : '请先连接到AGV，才能加载地图数据'
             }
           </div>

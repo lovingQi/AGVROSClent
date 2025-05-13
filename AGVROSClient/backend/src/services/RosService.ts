@@ -122,7 +122,7 @@ class RosService extends EventEmitter {
       }
     });
 
-    // 订阅位置
+    // 订阅位置 (AMCL)
     this.subscribeTopic('/amcl_pose', 'geometry_msgs/PoseWithCovarianceStamped', (message) => {
       if (message.data && message.data.pose?.pose) {
         const pose = message.data.pose.pose;
@@ -140,6 +140,28 @@ class RosService extends EventEmitter {
         this.agvStatus.position = position;
         this.agvStatus.lastUpdated = new Date();
         this.emit('status_update', this.agvStatus);
+      }
+    });
+
+    // 订阅机器人位置 (jloc_result)
+    this.subscribeTopic('/jloc_result', 'jarvis_msgs/LocResult', (message) => {
+      if (message.data) {
+        console.log('收到jloc_result原始消息:', JSON.stringify(message.data));
+        // 根据需求，x和y要乘以1000，t(theta)需要从弧度值转为角度值
+        const position: Position = {
+          x: (message.data.x || 0) * 1000,
+          y: (message.data.y || 0) * 1000,
+          theta: (message.data.t || 0) * (180 / Math.PI) // 弧度转角度
+        };
+        
+        console.log(`处理后的位置数据: x=${position.x}, y=${position.y}, theta=${position.theta}`);
+        
+        this.agvStatus.position = position;
+        this.agvStatus.lastUpdated = new Date();
+        this.emit('status_update', this.agvStatus);
+        logger.info(`接收到机器人位置: x=${position.x}, y=${position.y}, theta=${position.theta}`, { agvId: this.agvId });
+      } else {
+        console.log('收到jloc_result消息但数据为空');
       }
     });
   }
@@ -169,16 +191,19 @@ class RosService extends EventEmitter {
 
   subscribeTopic(topicName: string, messageType: string, callback: (message: RosMessage) => void): void {
     if (!this.connected || !this.ros) {
+      console.log(`AGV ${this.agvId} 无法订阅话题${topicName}，未连接到ROS`);
       logger.error(`无法订阅话题，未连接到ROS`, { agvId: this.agvId, topic: topicName });
       return;
     }
 
     // 如果已经订阅了该话题，先取消订阅
     if (this.subscribers.has(topicName)) {
+      console.log(`AGV ${this.agvId} 已存在对话题${topicName}的订阅，先取消订阅`);
       this.unsubscribeTopic(topicName);
     }
 
     try {
+      console.log(`AGV ${this.agvId} 开始订阅话题: ${topicName}, 类型: ${messageType}`);
       const topic = new ROSLIB.Topic({
         ros: this.ros,
         name: topicName,
@@ -186,6 +211,7 @@ class RosService extends EventEmitter {
       });
 
       topic.subscribe((data) => {
+        console.log(`AGV ${this.agvId} 接收到话题 ${topicName} 的消息`);
         const message: RosMessage = {
           topic: topicName,
           type: messageType,
@@ -198,8 +224,10 @@ class RosService extends EventEmitter {
       });
 
       this.subscribers.set(topicName, topic);
+      console.log(`AGV ${this.agvId} 已成功订阅话题: ${topicName}`);
       logger.info(`已订阅话题: ${topicName}`, { agvId: this.agvId });
     } catch (error) {
+      console.error(`AGV ${this.agvId} 订阅话题${topicName}失败:`, error);
       logger.error(`订阅话题失败: ${error}`, { agvId: this.agvId, topic: topicName });
     }
   }
