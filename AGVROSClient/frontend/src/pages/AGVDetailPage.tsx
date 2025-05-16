@@ -61,6 +61,23 @@ const mockAgvDetail: AgvDetail = {
   ]
 };
 
+// 添加AGV-002的模拟数据
+const mockAgvs = [
+  mockAgvDetail,
+  {
+    id: 2,
+    name: 'AGV-002',
+    status: 'online',
+    ipAddress: '172.10.25.126', // 更新后的AGV-002 IP地址
+    batteryLevel: 65,
+    speed: 0.8,
+    position: { x: 15.2, y: 8.7, z: 0.0 },
+    orientation: { x: 0.0, y: 0.0, z: 0.5, w: 0.87 },
+    lastUpdated: new Date().toISOString(),
+    availableTopics: []
+  }
+];
+
 const messageColumns = [
   {
     title: '时间戳',
@@ -109,7 +126,9 @@ const AGVDetailPage: React.FC = () => {
       try {
         // 在实际应用中，这里会调用API获取AGV详情
         setTimeout(() => {
-          setAgvDetail({ ...mockAgvDetail, id: agvId });
+          // 根据agvId选择对应的模拟数据
+          const selectedAgv = mockAgvs.find(agv => agv.id === agvId) || mockAgvs[0];
+          setAgvDetail(selectedAgv);
           setLoading(false);
         }, 1000);
       } catch (error) {
@@ -206,13 +225,21 @@ const AGVDetailPage: React.FC = () => {
     setLoading(true);
     // 模拟刷新
     setTimeout(() => {
-      setAgvDetail({ 
-        ...mockAgvDetail, 
-        id: agvId,
-        batteryLevel: Math.floor(Math.random() * 100),
-        speed: Math.random() * 2,
-        lastUpdated: new Date().toISOString()
-      });
+      // 找到当前AGV的索引
+      const agvIndex = mockAgvs.findIndex(agv => agv.id === agvId);
+      if (agvIndex !== -1) {
+        // 更新对应AGV的数据
+        mockAgvs[agvIndex] = { 
+          ...mockAgvs[agvIndex],
+          batteryLevel: Math.floor(Math.random() * 100),
+          speed: Math.random() * 2,
+          lastUpdated: new Date().toISOString()
+        };
+        setAgvDetail(mockAgvs[agvIndex]);
+      } else {
+        // 如果找不到，使用第一个AGV的数据
+        setAgvDetail(mockAgvs[0]);
+      }
       setLoading(false);
     }, 1000);
   };

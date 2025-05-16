@@ -21,7 +21,7 @@ const config = {
     {
       id: 2,
       name: 'AGV-002',
-      ipAddress: process.env.AGV_2_IP || '192.168.1.102',
+      ipAddress: process.env.AGV_2_IP || '172.10.25.126',
       rosPort: process.env.AGV_2_ROS_PORT || '9090'
     }
   ]

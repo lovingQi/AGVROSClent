@@ -36,13 +36,25 @@ class RosConnection {
     if (/^\d+$/.test(ipAddressOrAgvId)) {
       // 如果是纯数字，视为AGV ID
       this.agvId = parseInt(ipAddressOrAgvId, 10);
-      // AGV ID 1对应172.10.25.121，其他ID暂用1.1.1.x表示
-      this.ipAddress = this.agvId === 1 ? '172.10.25.121' : `1.1.1.${this.agvId}`;
+      // 根据AGV ID映射IP地址
+      if (this.agvId === 1) {
+        this.ipAddress = '172.10.25.121'; // AGV-001
+      } else if (this.agvId === 2) {
+        this.ipAddress = '172.10.25.126'; // AGV-002
+      } else {
+        this.ipAddress = `1.1.1.${this.agvId}`; // 其他ID暂用1.1.1.x表示
+      }
     } else {
       // 否则视为IP地址
       this.ipAddress = ipAddressOrAgvId;
-      // IP地址172.10.25.121对应AGV ID 1，其他IP地址暂用ID 2
-      this.agvId = this.ipAddress === '172.10.25.121' ? 1 : 2;
+      // 根据IP地址映射AGV ID
+      if (this.ipAddress === '172.10.25.121') {
+        this.agvId = 1; // AGV-001
+      } else if (this.ipAddress === '172.10.25.126') {
+        this.agvId = 2; // AGV-002
+      } else {
+        this.agvId = 2; // 其他IP地址暂用ID 2
+      }
     }
     
     this.port = port;

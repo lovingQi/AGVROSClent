@@ -168,7 +168,7 @@ const CameraImagePage: React.FC = () => {
 
   // 返回上一页
   const handleGoBack = () => {
-    window.location.href = `/agv/${agvId || localStorage.getItem('lastConnectedAgvId')}`;
+    window.history.back();
   };
 
   return (
