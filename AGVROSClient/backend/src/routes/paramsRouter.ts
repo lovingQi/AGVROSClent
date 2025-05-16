@@ -11,6 +11,18 @@ interface ConnectRequest extends Request {
   };
 }
 
+interface ReadFileRequest extends Request {
+  body: {
+    filePath: string;
+  };
+}
+
+interface MapRequest extends Request {
+  query: {
+    hostname?: string;
+  };
+}
+
 router.post('/connect', async (req: ConnectRequest, res: Response) => {
   try {
     const { hostname } = req.body;
@@ -44,7 +56,7 @@ router.get('/params', async (_req: Request, res: Response) => {
   }
 });
 
-router.get('/map', async (req: Request, res: Response) => {
+router.get('/map', async (req: MapRequest, res: Response) => {
   try {
     const { hostname } = req.query;
     
@@ -83,6 +95,26 @@ router.post('/disconnect', (_req: Request, res: Response) => {
     const errorMessage = error instanceof Error ? error.message : String(error);
     logger.error(`断开连接失败: ${errorMessage}`);
     res.status(500).json({ success: false, message: '断开连接失败' });
+  }
+});
+
+router.post('/readFile', async (req: ReadFileRequest, res: Response) => {
+  try {
+    const { filePath } = req.body;
+    logger.info(`请求读取文件: ${filePath}`);
+    
+    if (!filePath) {
+      logger.warn('未提供文件路径');
+      return res.status(400).json({ success: false, message: '请提供文件路径' });
+    }
+    
+    const fileContent = await sshService.readSpecificFile(filePath);
+    logger.info(`成功读取文件: ${filePath}`);
+    res.json({ success: true, data: fileContent });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(`读取文件失败: ${errorMessage}`);
+    res.status(500).json({ success: false, message: `读取文件失败: ${errorMessage}` });
   }
 });
 

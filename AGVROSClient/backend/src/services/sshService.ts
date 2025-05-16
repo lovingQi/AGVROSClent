@@ -352,6 +352,59 @@ export class SSHService {
     });
   }
 
+  async readSpecificFile(filePath: string): Promise<any> {
+    if (!this.client) {
+      const error = '尝试读取文件时SSH未连接';
+      logger.error(error);
+      throw new Error(error);
+    }
+
+    return new Promise((resolve, reject) => {
+      logger.info(`正在创建SFTP会话来读取指定文件: ${filePath}`);
+      this.client!.sftp((err, sftp) => {
+        if (err) {
+          logger.error(`SFTP会话创建失败: ${err.message}`);
+          reject(err);
+          return;
+        }
+
+        logger.info(`正在读取文件: ${filePath}`);
+        const readStream = sftp.createReadStream(filePath);
+        let data = '';
+
+        readStream.on('data', (chunk: Buffer) => {
+          data += chunk.toString();
+          logger.debug(`读取数据块: ${chunk.length} 字节`);
+        });
+
+        readStream.on('end', () => {
+          try {
+            logger.info(`文件读取完成，数据长度: ${data.length} 字节`);
+            
+            // 根据文件扩展名判断是否解析JSON
+            if (filePath.toLowerCase().endsWith('.json')) {
+              const parsedData = JSON.parse(data);
+              logger.info('成功解析JSON数据');
+              resolve(parsedData);
+            } else {
+              // 非JSON文件直接返回文本内容
+              resolve(data);
+            }
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            logger.error(`JSON解析错误: ${errorMessage}`);
+            reject(error);
+          }
+        });
+
+        readStream.on('error', (error: Error) => {
+          logger.error(`文件读取错误: ${error.message}`);
+          reject(error);
+        });
+      });
+    });
+  }
+
   disconnect(): void {
     if (this.client) {
       logger.info('正在断开SSH连接');
