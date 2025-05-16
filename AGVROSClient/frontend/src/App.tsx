@@ -3,6 +3,7 @@ import { Routes, Route, Link } from 'react-router-dom';
 import { Layout } from 'antd';
 import HomePage from './pages/HomePage';
 import AGVDetailPage from './pages/AGVDetailPage';
+import CameraImagePage from './pages/CameraImagePage';
 import ParamsViewer from './components/ParamsViewer';
 import './App.css';
 
@@ -23,6 +24,7 @@ const App: React.FC = () => {
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/agv/:id" element={<AGVDetailPage />} />
+            <Route path="/agv/:agvId/camera" element={<CameraImagePage />} />
             <Route path="/params" element={<ParamsViewer />} />
           </Routes>
         </div>

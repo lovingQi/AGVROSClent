@@ -3,6 +3,9 @@ import io, { Socket } from 'socket.io-client';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
 
+// 全局存储所有ROS连接实例
+const globalConnectionInstances: Record<string, RosConnection> = {};
+
 class RosConnection {
   private socket: Socket | null = null;
   private connected: boolean = false;
@@ -11,173 +14,257 @@ class RosConnection {
   private port: string = '9090';
   private messageHandlers: Map<string, ((message: RosMessage) => void)[]> = new Map();
   private topicSubscriptions: Set<string> = new Set();
+  private static globalSocket: Socket | null = null;
 
-  constructor(ipAddress: string, port: string = '9090') {
-    this.ipAddress = ipAddress;
+  // 获取单例实例
+  static getInstance(ipAddressOrAgvId: string, port: string = '9090'): RosConnection {
+    // 将AGV ID转换为字符串以用作键
+    const key = ipAddressOrAgvId;
+    
+    if (!globalConnectionInstances[key]) {
+      console.log(`创建新的RosConnection实例: ${key}`);
+      globalConnectionInstances[key] = new RosConnection(ipAddressOrAgvId, port);
+    } else {
+      console.log(`使用现有的RosConnection实例: ${key}`);
+    }
+    
+    return globalConnectionInstances[key];
+  }
+
+  constructor(ipAddressOrAgvId: string, port: string = '9090') {
+    // 判断输入是IP地址还是AGV ID
+    if (/^\d+$/.test(ipAddressOrAgvId)) {
+      // 如果是纯数字，视为AGV ID
+      this.agvId = parseInt(ipAddressOrAgvId, 10);
+      // AGV ID 1对应172.10.25.121，其他ID暂用1.1.1.x表示
+      this.ipAddress = this.agvId === 1 ? '172.10.25.121' : `1.1.1.${this.agvId}`;
+    } else {
+      // 否则视为IP地址
+      this.ipAddress = ipAddressOrAgvId;
+      // IP地址172.10.25.121对应AGV ID 1，其他IP地址暂用ID 2
+      this.agvId = this.ipAddress === '172.10.25.121' ? 1 : 2;
+    }
+    
     this.port = port;
   }
 
   connect(): Promise<boolean> {
+    // 如果已经连接，直接返回成功
+    if (this.connected && this.socket) {
+      console.log(`已经连接到AGV-${this.agvId}的ROS系统`);
+      return Promise.resolve(true);
+    }
+    
     return new Promise((resolve, reject) => {
       try {
-        // 连接到Socket.IO服务器
-        this.socket = io(API_URL);
-        const socket = this.socket; // 创建一个局部变量引用，避免null检查
-        
-        // 设置连接事件处理
-        socket.on('connect', () => {
-          console.log('已连接到Socket.IO服务器');
-          
-          // 获取AGV ID（这里假设IP地址唯一对应一个AGV）
-          this.agvId = this.ipAddress === '172.10.25.121' ? 1 : 2;
-          
-          // 加入AGV房间
-          socket.emit('join:agv', this.agvId);
-          
-          // 请求连接到ROS
-          socket.emit('ros:connect', {
-            agvId: this.agvId,
-            ipAddress: this.ipAddress,
-            port: this.port
+        // 尝试使用全局Socket.IO连接
+        if (RosConnection.globalSocket && RosConnection.globalSocket.connected) {
+          console.log('使用现有的全局Socket.IO连接');
+          this.socket = RosConnection.globalSocket;
+          this.setupSocketEventHandlers(resolve, reject);
+        } else {
+          console.log('创建新的Socket.IO连接');
+          // 连接到Socket.IO服务器
+          this.socket = io(API_URL, {
+            transports: ['websocket'],
+            forceNew: false,
+            reconnection: true,
+            reconnectionAttempts: 5,
+            reconnectionDelay: 1000,
+            timeout: 10000
           });
           
-          // 处理ROS连接成功
-          socket.on('ros:connected', (data: { agvId: number, success: boolean }) => {
-            if (data.agvId === this.agvId && data.success) {
-              this.connected = true;
-              console.log(`已成功连接到AGV-${this.agvId}的ROS系统`);
-              resolve(true);
-              
-              // 如果有之前的话题订阅，需要重新订阅
-              if (this.topicSubscriptions.size > 0) {
-                console.log('重新订阅之前的话题...');
-                // 先清除之前的订阅
-                const topics = Array.from(this.topicSubscriptions);
-                this.topicSubscriptions.clear();
-                
-                // 对每个话题重新获取类型并订阅
-                topics.forEach(async (topic) => {
-                  try {
-                    // 获取话题类型
-                    const type = await this.getTopicType(topic);
-                    if (type && type !== '未知') {
-                      // 找到对应的回调函数
-                      const handlers = this.messageHandlers.get(topic);
-                      if (handlers && handlers.length > 0) {
-                        // 重新订阅
-                        console.log(`重新订阅话题 ${topic}，类型: ${type}`);
-                        this.doSubscribe(topic, type, handlers[0]);
-                      }
-                    } else {
-                      console.warn(`无法获取话题 ${topic} 的类型，跳过重新订阅`);
-                    }
-                  } catch (error) {
-                    console.error(`重新订阅话题 ${topic} 失败:`, error);
-                  }
-                });
-              }
-            }
-          });
-          
-          // 处理ROS连接错误
-          socket.on('ros:error', (data: { agvId: number, error: string }) => {
-            if (data.agvId === this.agvId) {
-              this.connected = false;
-              console.error(`ROS连接错误: ${data.error}`);
-              reject(new Error(data.error));
-            }
-          });
-          
-          // 处理ROS断开连接
-          socket.on('ros:disconnected', (data: { agvId: number }) => {
-            if (data.agvId === this.agvId) {
-              this.connected = false;
-              console.log(`已断开与AGV-${this.agvId}的ROS连接`);
-            }
-          });
-          
-          // 处理ROS消息
-          socket.on('ros:message', (data: { agvId: number, message: string }) => {
-            if (data.agvId === this.agvId) {
-              try {
-                console.log(`收到ROS消息(${this.agvId}):`, data.message.substring(0, 100) + (data.message.length > 100 ? '...' : ''));
-                const rosMsg = JSON.parse(data.message);
-                
-                // 检查是否是服务响应
-                if (rosMsg.op === 'service_response') {
-                  console.log('收到服务响应:', rosMsg);
-                  // 这里可以处理服务响应
-                  return;
-                }
-                
-                // 检查是否是话题消息（publish操作）
-                if (rosMsg.op === 'publish') {
-                  const topic = rosMsg.topic;
-                  
-                  if (topic && this.messageHandlers.has(topic)) {
-                    const handlers = this.messageHandlers.get(topic)!;
-                    handlers.forEach(handler => {
-                      handler({
-                        topic: topic,
-                        type: rosMsg.type || 'unknown',
-                        data: rosMsg.msg || rosMsg
-                      });
-                    });
-                  }
-                  return;
-                }
-                
-                // 检查旧格式的话题消息
-                const topic = rosMsg.topic;
-                if (topic && this.messageHandlers.has(topic)) {
-                  const handlers = this.messageHandlers.get(topic)!;
-                  handlers.forEach(handler => {
-                    handler({
-                      topic: topic,
-                      type: rosMsg.type || 'unknown',
-                      data: rosMsg.msg || rosMsg
-                    });
-                  });
-                }
-              } catch (error) {
-                console.error('解析ROS消息失败:', error);
-              }
-            }
-          });
-        });
-        
-        // 处理Socket.IO错误
-        socket.on('connect_error', (error) => {
-          console.error('Socket.IO连接错误:', error);
-          reject(error);
-        });
-        
-        // 处理Socket.IO断开连接
-        socket.on('disconnect', () => {
-          console.log('已断开与Socket.IO服务器的连接');
-          this.connected = false;
-        });
-        
+          RosConnection.globalSocket = this.socket;
+          this.setupSocketEventHandlers(resolve, reject);
+        }
       } catch (error) {
         console.error('创建Socket.IO连接失败:', error);
         reject(error);
       }
     });
   }
-
-  close(): void {
-    if (this.socket) {
-      // 离开AGV房间
-      if (this.agvId) {
-        this.socket.emit('leave:agv', this.agvId);
+  
+  private setupSocketEventHandlers(resolve: (value: boolean) => void, reject: (reason?: any) => void): void {
+    if (!this.socket) return;
+    const socket = this.socket;
+    
+    // 检查是否已连接到Socket.IO
+    if (socket.connected) {
+      console.log('Socket.IO已连接，直接加入AGV房间');
+      this.joinAgvRoom(socket, resolve, reject);
+    } else {
+      // 设置连接事件处理
+      socket.on('connect', () => {
+        console.log('已连接到Socket.IO服务器');
+        this.joinAgvRoom(socket, resolve, reject);
+      });
+    }
+    
+    // 处理Socket.IO错误
+    socket.on('connect_error', (error) => {
+      console.error('Socket.IO连接错误:', error);
+      reject(error);
+    });
+    
+    // 处理Socket.IO断开连接
+    socket.on('disconnect', () => {
+      console.log('已断开与Socket.IO服务器的连接');
+      this.connected = false;
+    });
+  }
+  
+  private joinAgvRoom(socket: Socket, resolve: (value: boolean) => void, reject: (reason?: any) => void): void {
+    // 加入AGV房间
+    socket.emit('join:agv', this.agvId);
+    
+    // 请求连接到ROS
+    socket.emit('ros:connect', {
+      agvId: this.agvId,
+      ipAddress: this.ipAddress,
+      port: this.port
+    });
+    
+    // 移除之前的监听器，避免重复
+    socket.off('ros:connected');
+    socket.off('ros:error');
+    socket.off('ros:disconnected');
+    socket.off('ros:message');
+    
+    // 处理ROS连接成功
+    socket.on('ros:connected', (data: { agvId: number, success: boolean }) => {
+      if (data.agvId === this.agvId && data.success) {
+        this.connected = true;
+        console.log(`已成功连接到AGV-${this.agvId}的ROS系统`);
+        resolve(true);
+        
+        // 如果有之前的话题订阅，需要重新订阅
+        if (this.topicSubscriptions.size > 0) {
+          console.log('重新订阅之前的话题...');
+          // 先清除之前的订阅
+          const topics = Array.from(this.topicSubscriptions);
+          this.topicSubscriptions.clear();
+          
+          // 对每个话题重新获取类型并订阅
+          topics.forEach(async (topic) => {
+            try {
+              // 获取话题类型
+              const type = await this.getTopicType(topic);
+              if (type && type !== '未知') {
+                // 找到对应的回调函数
+                const handlers = this.messageHandlers.get(topic);
+                if (handlers && handlers.length > 0) {
+                  // 重新订阅
+                  console.log(`重新订阅话题 ${topic}，类型: ${type}`);
+                  this.doSubscribe(topic, type, handlers[0]);
+                }
+              } else {
+                console.warn(`无法获取话题 ${topic} 的类型，跳过重新订阅`);
+              }
+            } catch (error) {
+              console.error(`重新订阅话题 ${topic} 失败:`, error);
+            }
+          });
+        }
       }
+    });
+    
+    // 处理ROS连接错误
+    socket.on('ros:error', (data: { agvId: number, error: string }) => {
+      if (data.agvId === this.agvId) {
+        this.connected = false;
+        console.error(`ROS连接错误: ${data.error}`);
+        reject(new Error(data.error));
+      }
+    });
+    
+    // 处理ROS断开连接
+    socket.on('ros:disconnected', (data: { agvId: number }) => {
+      if (data.agvId === this.agvId) {
+        this.connected = false;
+        console.log(`已断开与AGV-${this.agvId}的ROS连接`);
+      }
+    });
+    
+    // 处理ROS消息
+    socket.on('ros:message', (data: { agvId: number, message: string }) => {
+      if (data.agvId === this.agvId) {
+        try {
+          console.log(`收到ROS消息(${this.agvId}):`, data.message.substring(0, 100) + (data.message.length > 100 ? '...' : ''));
+          const rosMsg = JSON.parse(data.message);
+          
+          // 检查是否是服务响应
+          if (rosMsg.op === 'service_response') {
+            console.log('收到服务响应:', rosMsg);
+            // 这里可以处理服务响应
+            return;
+          }
+          
+          // 检查是否是话题消息（publish操作）
+          if (rosMsg.op === 'publish') {
+            const topic = rosMsg.topic;
+            
+            if (topic && this.messageHandlers.has(topic)) {
+              const handlers = this.messageHandlers.get(topic)!;
+              handlers.forEach(handler => {
+                handler({
+                  topic: topic,
+                  type: rosMsg.type || 'unknown',
+                  data: rosMsg.msg || rosMsg
+                });
+              });
+            }
+            return;
+          }
+          
+          // 检查旧格式的话题消息
+          const topic = rosMsg.topic;
+          if (topic && this.messageHandlers.has(topic)) {
+            const handlers = this.messageHandlers.get(topic)!;
+            handlers.forEach(handler => {
+              handler({
+                topic: topic,
+                type: rosMsg.type || 'unknown',
+                data: rosMsg.msg || rosMsg
+              });
+            });
+          }
+        } catch (error) {
+          console.error('解析ROS消息失败:', error);
+        }
+      }
+    });
+  }
+
+  disconnect(): void {
+    if (this.socket) {
+      console.log(`断开连接: AGV-${this.agvId}`);
       
-      // 断开Socket.IO连接
-      this.socket.disconnect();
-      this.socket = null;
+      // 取消所有订阅
+      this.topicSubscriptions.forEach(topic => {
+        this.unsubscribe(topic);
+      });
+      
+      // 仅离开房间，不断开Socket.IO连接
+      this.socket.emit('leave:agv', this.agvId);
+      
       this.connected = false;
       this.messageHandlers.clear();
       this.topicSubscriptions.clear();
+    }
+  }
+
+  close(): void {
+    this.disconnect();
+    
+    // 移除全局实例
+    delete globalConnectionInstances[this.ipAddress];
+    delete globalConnectionInstances[this.agvId.toString()];
+    
+    // 如果这是最后一个实例，也关闭全局Socket.IO连接
+    if (Object.keys(globalConnectionInstances).length === 0 && RosConnection.globalSocket) {
+      console.log('关闭全局Socket.IO连接');
+      RosConnection.globalSocket.disconnect();
+      RosConnection.globalSocket = null;
     }
   }
 

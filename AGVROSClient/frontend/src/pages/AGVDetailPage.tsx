@@ -129,8 +129,11 @@ const AGVDetailPage: React.FC = () => {
     
     try {
       console.log(`尝试连接到ROS: ${agvDetail.ipAddress}:${9090}`);
-      const ros = new RosConnection(agvDetail.ipAddress);
+      
+      // 使用单例模式获取ROS连接实例
+      const ros = RosConnection.getInstance(agvId.toString());
       await ros.connect();
+      
       setRosConnection(ros);
       setConnected(true);
       
@@ -146,6 +149,10 @@ const AGVDetailPage: React.FC = () => {
           const topicInfos = await getTopicTypes(topics);
           setAvailableTopics(topicInfos);
           setConnectionError('');
+          
+          // 保存AGV ID和IP地址到localStorage，以便摄像头页面使用
+          localStorage.setItem('lastConnectedAgvId', agvId.toString());
+          localStorage.setItem('lastConnectedAgvIp', agvDetail.ipAddress);
         } else {
           console.warn('获取到的话题列表为空');
           setConnectionError('未获取到任何话题，请检查ROS系统是否正常运行');
@@ -165,10 +172,7 @@ const AGVDetailPage: React.FC = () => {
 
   useEffect(() => {
     return () => {
-      // 组件卸载时清理ROS连接
-      if (rosConnection) {
-        rosConnection.close();
-      }
+      // 组件卸载时不断开连接，因为摄像头页面可能会使用
     };
   }, [rosConnection]);
 
@@ -553,6 +557,16 @@ const AGVDetailPage: React.FC = () => {
             showIcon
             style={{ marginBottom: 16 }}
           />
+        )}
+
+        {connected && (
+          <div style={{ display: 'flex', gap: '10px', marginBottom: 16 }}>
+            <Link to={`/agv/${agvId}/camera`}>
+              <Button type="primary">
+                查看摄像头图像
+              </Button>
+            </Link>
+          </div>
         )}
         
         {connected && (
