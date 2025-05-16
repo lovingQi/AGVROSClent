@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { Layout, Card, Row, Col, Badge, Spin, Empty } from 'antd';
 import { CarOutlined } from '@ant-design/icons';
 import { AgvStatus } from '../types/agv';
+import axios from 'axios';
+import message from 'antd/lib/message';
 
 const { Content } = Layout;
 
@@ -20,8 +22,8 @@ const mockAgvs: AgvStatus[] = [
   {
     id: 2,
     name: 'AGV-002',
-    status: 'offline',
-    ipAddress: '192.168.1.102',
+    status: 'online',
+    ipAddress: '172.10.25.126',
     batteryLevel: 20,
     speed: 0,
     lastUpdated: new Date().toISOString()
